@@ -18,7 +18,7 @@ import "./App.css";
 function App() {
   const client = useRTCClient(AgoraRTC.createClient({ codec: "vp8", mode: "rtc" }));
   const [channelName, setChannelName] = useState("test");
-  const [AppID, setAppID] = useState("");
+  const [AppID, setAppID] = useState("e083fa7320264dafacd225603c559330");
   const [token, setToken] = useState("");
   const [inCall, setInCall] = useState(false);
 
