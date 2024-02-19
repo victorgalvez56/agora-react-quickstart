@@ -1,4 +1,4 @@
-import { CSSProperties, useState } from "react";
+import { CSSProperties, useEffect, useState } from "react";
 import {
   AgoraRTCProvider,
   useJoin,
@@ -14,35 +14,232 @@ import {
 } from "agora-rtc-react";
 import AgoraRTC, { ILocalAudioTrack, ILocalVideoTrack } from "agora-rtc-sdk-ng";
 import "./App.css";
+import io from 'socket.io-client';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemText from '@mui/material/ListItemText';
+import CommentIcon from '@mui/icons-material/Comment';
+import IconButton from '@mui/material/IconButton';
+import { PhoneForwarded } from "@mui/icons-material";
+import { Box, TextField } from "@mui/material";
+import { Button, Modal } from "@mui/base";
+
+// const socket = io('http://localhost:3005', { transports: ['websocket', 'polling', 'flashsocket'] });
+const socket = io('https://calling.snapcode.app', { transports: ['websocket', 'polling', 'flashsocket'] });
 
 function App() {
   const client = useRTCClient(AgoraRTC.createClient({ codec: "vp8", mode: "rtc" }));
-  const [channelName, setChannelName] = useState("test");
+  const [channelName, setChannelName] = useState('');
   const [AppID, setAppID] = useState("e083fa7320264dafacd225603c559330");
   const [token, setToken] = useState("");
   const [inCall, setInCall] = useState(false);
+  const [usuariosDisponibles, setUsuariosDisponibles] = useState([]);
+  const [llamadaEnCurso, setLlamadaEnCurso] = useState(false);
+  const [idLlamada, setIdLlamada] = useState(null);
+  const [idMySocket, setIdMySocket] = useState<string | undefined>('')
+  const [usuariosConectados, setUsuariosConectados] = useState<{ id: string, name: string }[]>([]);
+  const [userName, setUserName] = useState(null);
+  const [showEnterUser, setShowEnterUser] = useState(true);
+  const [llamadaEntrante, setLlamadaEntrante] = useState(false);
+  const [modalCalling, setModalCalling] = useState(false);
+  const [receptor, setReceptor] = useState('');
+  const audioUrl = '/michi_llamada.mp3'; // Ruta relativa al archivo de audio
+  const [dataCalling, setDataCalling] = useState<{
+    emisor: { id: string, name: string },
+    receptor: { id: string, name: string }
+  }>()
+  const [alert1, setAlert1] = useState(true);
 
+  useEffect(() => {
+
+    socket.on("connect", () => {
+      setIdMySocket(socket.id);
+    });
+    socket.on('usuariosConectados', (usuarios) => {
+      usuarios = usuarios.filter(objeto => objeto.id !== socket.id);
+      setUsuariosConectados(usuarios);
+    });
+    socket.on('recibirRespuestaLlamada', (response) => {
+      if (response.response == "yes") {
+        setInCall(true)
+        setDataCalling(response.dataCalling)
+      } else {
+        setLlamadaEntrante(false);
+        setModalCalling(false)
+        audio.pause();
+        if (alert1) {
+          alert("Se denegó la llamada por parte de " + response.dataCalling.receptor.name)
+          setAlert1(false)
+        }
+
+      }
+    });
+    socket.emit('getUsuariosConectados');
+
+    socket.on('llamadaEntrante', (data) => {
+      setDataCalling(data)
+      setLlamadaEntrante(true);
+      setModalCalling(true)
+      audio.play();
+    });
+    return () => {
+      // socket.disconnect();
+    };
+  }, []);
+
+  const conectarUsuario = (nombreUsuario) => {
+    socket.emit('nuevoUsuario', nombreUsuario);
+  };
+
+  const notificarLlamada = (idReceptor) => {
+    socket.emit('notificarLlamada', { receptor: idReceptor, emisor: idMySocket });
+  };
+
+  const responderLlamada = (response) => {
+    socket.emit('responderLlamada', { dataCalling, response });
+    if (response === 'yes') {
+      setInCall(true)
+    }
+    audio.pause();
+    setLlamadaEntrante(false)
+    setModalCalling(false)
+    // Continuar con la lógica de Agora para establecer la videollamada
+    // ...
+  };
+  const handleLlamadaEntrante = () => {
+
+  };
+  const style = {
+    position: 'absolute' as 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    width: 400,
+    bgcolor: 'background.paper',
+    border: '2px solid #000',
+    boxShadow: 24,
+    pt: 2,
+    px: 4,
+    pb: 3,
+  };
   return (
-    <div style={styles.container}>
-      <h1>Agora React Videocall</h1>
-      {!inCall ? (
-        <Form
-          AppID={AppID}
-          setAppID={setAppID}
-          channelName={channelName}
-          setChannelName={setChannelName}
-          token={token}
-          setToken={setToken}
-          setInCall={setInCall}
-        />
-      ) : (
-        <AgoraRTCProvider client={client}>
-          <Videos channelName={channelName} AppID={AppID} token={token} />
-          <br />
-          <button onClick={() => setInCall(false)}>End Call</button>
-        </AgoraRTCProvider>
-      )}
-    </div>
+    <>
+      <audio id="audio" src={audioUrl}></audio>
+      {llamadaEntrante ?
+        <>
+          <Modal
+            open={modalCalling}
+            onClose={() => setModalCalling(false)}
+            aria-labelledby="parent-modal-title"
+            aria-describedby="parent-modal-description"
+          >
+            <Box sx={{ ...style, width: 400, color: 'black' }}>
+              <h2 id="parent-modal-title">LLamada entrante de : {dataCalling?.emisor.name}</h2>
+              <Button style={{ backgroundColor: 'green' }} onClick={e => responderLlamada("yes")}>Contestar</Button>
+              <Button style={{ backgroundColor: 'red' }} onClick={e => responderLlamada("no")}>Denegar</Button>
+            </Box>
+          </Modal>
+        </>
+        :
+        <div style={styles.container}>
+          <h1 style={{ color: 'black' }}>Agora React Videocall</h1>
+          <div style={{ alignSelf: 'center', width: 500 }}>
+            {
+              !inCall ? (
+                <>
+                  {showEnterUser ?
+                    <>
+                      <h2 style={{ color: 'black' }}>Digite su nombre completo</h2>
+                      <TextField id="outlined-basic" variant="outlined"
+                        onChange={(e) => setUserName(e.target.value)}
+                      />
+
+                      <div style={{ marginTop: 10 }}>
+                        <Button onClick={() => {
+                          conectarUsuario(userName);
+                          setShowEnterUser(false)
+                        }} variant="contained">Conectar</Button>
+                      </div>
+                    </> :
+                    <div >
+                      <h2 style={{ color: 'black' }}>Usuarios Disponibles:  {usuariosConectados.length}</h2>
+                      <h2 style={{ color: 'black' }}>{idMySocket}</h2>
+                      <List sx={{
+                        width: '100%',
+                        maxWidth: 360,
+                        paddingRight: 10,
+                        paddingLeft: 10,
+                        borderRadius: 10
+                      }}>
+                        {usuariosConectados.map((value) => (
+                          <>
+                            {idMySocket !== value.id &&
+                              <ListItem
+                                key={value.id}
+                                disableGutters
+                                secondaryAction={
+                                  <IconButton aria-label="comment" onClick={() => {
+                                    notificarLlamada(value.id);
+                                    // (AppID ? setInCall(true) : alert("Please enter Agora App ID and Channel Name"))
+                                  }}
+                                  >
+                                    <PhoneForwarded />
+                                  </IconButton >
+                                }
+                              >
+                                <ListItemText style={{ color: 'black' }} primary={`${value.name}`} />
+                              </ListItem>
+                            }
+                          </>
+                        ))}
+                      </List>
+                    </div>
+                  }
+                </>
+              ) : (
+                <>
+                  <h4 style={{ color: 'black' }}>
+                    {"Canal llamada : " + dataCalling?.emisor.id + dataCalling?.receptor.id}
+                  </h4>
+                  <AgoraRTCProvider client={client}>
+                    <Videos channelName={dataCalling?.emisor.id + dataCalling?.receptor.id} AppID={AppID} token={token} />
+                    <br />
+                    <Button onClick={() => setInCall(false)}>End Call</Button>
+                  </AgoraRTCProvider>
+                </>
+              )
+            }
+          </div >
+          {/* <>
+          {llamadaEnCurso && (
+            <div>
+              <p>Llamada en curso...</p>
+              <button onClick={responderLlamada}>Responder</button>
+            </div>
+          )}
+        </div>
+        {
+          !inCall ? (
+            <Form
+              AppID={AppID}
+              setAppID={setAppID}
+              channelName={channelName}
+              setChannelName={setChannelName}
+              token={token}
+              setToken={setToken}
+              setInCall={setInCall}
+            />
+          ) : (
+            <AgoraRTCProvider client={client}>
+              <Videos channelName={channelName} AppID={AppID} token={token} />
+              <br />
+              <button onClick={() => setInCall(false)}>End Call</button>
+            </AgoraRTCProvider>
+          )
+        }
+      </> */}
+        </div >}
+    </>
   );
 }
 
@@ -145,10 +342,10 @@ const returnGrid = (remoteUsers: Array<unknown>) => {
       remoteUsers.length > 8
         ? unit.repeat(4)
         : remoteUsers.length > 3
-        ? unit.repeat(3)
-        : remoteUsers.length > 0
-        ? unit.repeat(2)
-        : unit,
+          ? unit.repeat(3)
+          : remoteUsers.length > 0
+            ? unit.repeat(2)
+            : unit,
   };
 };
 const unit = "minmax(0, 1fr) ";
