@@ -12,6 +12,7 @@ import {
   RemoteUser,
   LocalVideoTrack,
   useClientEvent,
+  useScreenVideoTrack
 } from "agora-rtc-react";
 import AgoraRTC, { ILocalAudioTrack, ILocalVideoTrack } from "agora-rtc-sdk-ng";
 import "./App.css";
@@ -243,19 +244,30 @@ function App() {
   );
 }
 
-function Videos(props: { channelName: string; AppID: string; token: string }) {
+const Videos = (props: { channelName: string; AppID: string; token: string }) => {
   const { AppID, channelName, token } = props;
-  const { isLoading: isLoadingMic, localMicrophoneTrack } = useLocalMicrophoneTrack();
-  const { isLoading: isLoadingCam, localCameraTrack } = useLocalCameraTrack();
+  const client = useRTCClient();
+  const { ready: audioReady, isLoading: isLoadingMic, localMicrophoneTrack } = useLocalMicrophoneTrack();
+  const { ready: videoReady, isLoading: isLoadingCam, localCameraTrack } = useLocalCameraTrack();
   const remoteUsers = useRemoteUsers();
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [localScreenTrack, setLocalScreenTrack] = useState<ILocalVideoTrack | null>(null);
   const { audioTracks } = useRemoteAudioTracks(remoteUsers);
 
-  const client = useRTCClient();
   useClientEvent(client, "user-published", (user) => {
     console.log(user);
   });
 
+  // useClientEvent(client, "user-published", (user, mediaType) => {
+  //   client.subscribe(user, mediaType);
+  // });
   usePublish([localMicrophoneTrack, localCameraTrack]);
+
+
+  // usePublish(localMicrophoneTrack ? [localMicrophoneTrack] : []);
+  // usePublish(videoReady && !isScreenSharing ? [localVideoTrack] : []);
+  // usePublish(isScreenSharing && localScreenTrack ? [localScreenTrack] : []);
+
 
   useJoin({
     appid: AppID,
@@ -263,14 +275,49 @@ function Videos(props: { channelName: string; AppID: string; token: string }) {
     token: token === "" ? null : token,
   });
 
-  audioTracks.map((track) => track.play());
+  const startScreenShare = async () => {
+    if (!isScreenSharing) {
+      const screenTrack = await AgoraRTC.createScreenVideoTrack();
+      setLocalScreenTrack(screenTrack);
+      setIsScreenSharing(true);
+      if (localCameraTrack) {
+        await client.unpublish([localCameraTrack]);
+      }
+      await client.publish([screenTrack]);
+    }
+  };
+
+  const stopScreenShare = async () => {
+    if (isScreenSharing && localScreenTrack) {
+      await client.unpublish([localScreenTrack]);
+      localScreenTrack.close();
+      setLocalScreenTrack(null);
+      setIsScreenSharing(false);
+      if (localVideoTrack) {
+        await client.publish([localVideoTrack]);
+      }
+    }
+  };
+
+  const toggleScreenShare = () => {
+    if (isScreenSharing) {
+      stopScreenShare();
+    } else {
+      startScreenShare();
+    }
+  };
+
+  // if (!audioReady || !videoReady) {
+  //   return <h4 style={{ color: 'black' }}>
+  //     Loading devices...
+  //   </h4>
+  // }
 
   const deviceLoading = isLoadingMic || isLoadingCam;
   if (deviceLoading) return <div style={styles.grid}>Loading devices...</div>;
 
   const deviceUnavailable = !localCameraTrack || !localMicrophoneTrack;
   if (deviceUnavailable) return <div style={styles.grid}>Please allow camera and microphone permissions</div>;
-
   return (
     <>
       <div style={{ ...styles.grid, ...returnGrid(remoteUsers) }}>
@@ -280,18 +327,13 @@ function Videos(props: { channelName: string; AppID: string; token: string }) {
         ))}
       </div>
       <br />
-      <Controls localMicrophoneTrack={localMicrophoneTrack} localCameraTrack={localCameraTrack} />
+      <div style={styles.btnContainer}>
+        <button onClick={() => void localMicrophoneTrack.setMuted(!localMicrophoneTrack.muted)}>Mute Mic</button>
+        <button onClick={() => void localCameraTrack.setMuted(!localCameraTrack.muted)}>Mute Cam</button>
+        <button onClick={toggleScreenShare}>{isScreenSharing ? "Stop Sharing Screen" : "Share Screen"}
+        </button>
+      </div>
     </>
-  );
-}
-
-const Controls = (props: { localMicrophoneTrack: ILocalAudioTrack; localCameraTrack: ILocalVideoTrack }) => {
-  const { localMicrophoneTrack, localCameraTrack } = props;
-  return (
-    <div style={styles.btnContainer}>
-      <button onClick={() => void localMicrophoneTrack.setMuted(!localMicrophoneTrack.muted)}>Mute Mic</button>
-      <button onClick={() => void localCameraTrack.setMuted(!localCameraTrack.muted)}>Mute Cam</button>
-    </div>
   );
 };
 
