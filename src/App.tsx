@@ -52,7 +52,7 @@ function App() {
   const [alert1, setAlert1] = useState(true);
 
   useEffect(() => {
-
+    console.warn(socket)
     socket.on("connect", () => {
       setIdMySocket(socket.id);
     });
